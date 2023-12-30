@@ -1,0 +1,355 @@
+#include <WiFi.h>
+#include <esp_now.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+bool ledOn1 = false;
+bool ledOn2 = false;
+bool ledOn3 = false;
+bool ledOn4 = false;
+
+const int STATUS_LED1 = 2;
+const int STATUS_LED2 = 18;
+const int STATUS_LED3 = 19;
+const int STATUS_LED4 = 21;
+
+TaskHandle_t task1_handle = NULL;
+TaskHandle_t task2_handle = NULL;#include <WiFi.h>
+#include <esp_now.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+bool ledOn1 = false;
+bool ledOn2 = false;
+bool ledOn3 = false;
+bool ledOn4 = false;
+
+const int STATUS_LED1 = 2;
+const int STATUS_LED2 = 18;
+const int STATUS_LED3 = 19;
+const int STATUS_LED4 = 21;
+
+TaskHandle_t task1_handle = NULL;
+TaskHandle_t task2_handle = NULL;
+TaskHandle_t task3_handle = NULL;
+TaskHandle_t task4_handle = NULL;
+
+struct SensorTaskParams
+{
+  TaskHandle_t task_handle;
+  bool *ledOn;
+};
+
+void formatMacAddress(const uint8_t *macAddr, char *buffer, int maxLength)
+{
+  snprintf(buffer, maxLength, "%02x:%02x:%02x:%02x:%02x:%02x", macAddr[0], macAddr[1], macAddr[2], macAddr[3], macAddr[4], macAddr[5]);
+}
+
+void receiveCallback(const uint8_t *macAddr, const uint8_t *data, int dataLen)
+{
+  char buffer[ESP_NOW_MAX_DATA_LEN + 1];
+  int msgLen = min(ESP_NOW_MAX_DATA_LEN, dataLen);
+  strncpy(buffer, (const char *)data, msgLen);
+  buffer[msgLen] = 0;
+
+  char macStr[18];
+  formatMacAddress(macAddr, macStr, 18);
+
+  Serial.print("Received message from: ");
+  Serial.print(macStr);
+  Serial.print(" - ");
+  Serial.println(buffer);
+
+  if (strcmp("pir1_on", buffer) == 0)
+  {
+    ledOn1 = true;
+    Serial.println("Led1 On");
+    digitalWrite(STATUS_LED1, HIGH); // Turn on LED immediately
+    vTaskResume(task1_handle);       // Resume the corresponding task
+  }
+  else
+  {
+    ledOn1 = false;
+    digitalWrite(STATUS_LED1, LOW); // Turn off LED immediately for other cases
+  }
+}
+
+void task1(void *Parameters)
+{
+  int ledPin = *((int *)Parameters);
+  while (1)
+  {
+    if (ledOn1)
+    {
+      digitalWrite(ledPin, HIGH);
+      vTaskDelay(10000 / portTICK_PERIOD_MS); // Keep LED on for 10 seconds
+      digitalWrite(ledPin, LOW);
+      ledOn1 = false; // Turn off LED after the delay
+    }
+    vTaskSuspend(task1_handle);
+  }
+}
+
+void task2(void *Parameters)
+{
+  int ledPin = *((int *)Parameters);
+  while (1)
+  {
+    digitalWrite(ledPin, HIGH);
+    Serial.println("Led2---  on");
+    vTaskDelay(10000 / portTICK_PERIOD_MS);
+    digitalWrite(ledPin, LOW);
+    vTaskSuspend(task2_handle);
+  }
+}
+
+void task3(void *Parameters)
+{
+  int ledPin = *((int *)Parameters);
+  while (1)
+  {
+    digitalWrite(ledPin, HIGH);
+    vTaskDelay(10000 / portTICK_PERIOD_MS);
+    digitalWrite(ledPin, LOW);
+    vTaskSuspend(task3_handle);
+  }
+}
+
+void task4(void *Parameters)
+{
+  int ledPin = *((int *)Parameters);
+  while (1)
+  {
+    digitalWrite(ledPin, HIGH);
+    Serial.println("Led4---  on");
+    vTaskDelay(10000 / portTICK_PERIOD_MS);
+    digitalWrite(ledPin, LOW);
+    vTaskSuspend(task4_handle);
+  }
+}
+
+void Sensor_Task(void *Parameters)
+{
+  SensorTaskParams *params = (SensorTaskParams *)Parameters;
+  TaskHandle_t task_handle = params->task_handle;
+  bool *ledOn = params->ledOn;
+
+  while (1)
+  {
+    if (*ledOn)
+    {
+      vTaskResume(task_handle);
+    }
+    vTaskDelay(1);
+  }
+}
+
+void setup()
+{
+  Serial.begin(115200);
+  xTaskCreate(task1, "Task1", 10000, (void *)&STATUS_LED1, 0, &task1_handle);
+  xTaskCreate(task2, "Task2", 10000, (void *)&STATUS_LED2, 0, &task2_handle);
+  xTaskCreate(task3, "Task3", 10000, (void *)&STATUS_LED3, 0, &task3_handle);
+  xTaskCreate(task4, "Task4", 10000, (void *)&STATUS_LED4, 0, &task4_handle);
+
+  SensorTaskParams task1_params = {task1_handle, &ledOn1};
+  SensorTaskParams task2_params = {task2_handle, &ledOn2};
+  SensorTaskParams task3_params = {task3_handle, &ledOn3};
+  SensorTaskParams task4_params = {task4_handle, &ledOn4};
+
+  xTaskCreate(Sensor_Task, "Sensor_Task_1", 10000, &task1_params, 1, NULL);
+  xTaskCreate(Sensor_Task, "Sensor_Task_2", 10000, &task2_params, 1, NULL);
+  xTaskCreate(Sensor_Task, "Sensor_Task_3", 10000, &task3_params, 1, NULL);
+  xTaskCreate(Sensor_Task, "Sensor_Task_4", 10000, &task4_params, 1, NULL);
+
+  delay(1000);
+
+  WiFi.mode(WIFI_STA);
+  Serial.println("ESP-NOW Broadcast Demo");
+  Serial.print("MAC Address: ");
+  Serial.println(WiFi.macAddress());
+
+  WiFi.disconnect();
+
+  if (esp_now_init() == ESP_OK)
+  {
+    Serial.println("ESP-NOW Init Success");
+    esp_now_register_recv_cb(receiveCallback);
+  }
+  else
+  {
+    Serial.println("ESP-NOW Init Failed");
+    delay(3000);
+    ESP.restart();
+  }
+
+  pinMode(STATUS_LED1, OUTPUT);
+  pinMode(STATUS_LED2, OUTPUT);
+  pinMode(STATUS_LED3, OUTPUT);
+  pinMode(STATUS_LED4, OUTPUT);
+}
+
+void loop()
+{
+}
+TaskHandle_t task3_handle = NULL;
+TaskHandle_t task4_handle = NULL;
+
+struct SensorTaskParams
+{
+  TaskHandle_t task_handle;
+  bool *ledOn;
+};
+
+void formatMacAddress(const uint8_t *macAddr, char *buffer, int maxLength)
+{
+  snprintf(buffer, maxLength, "%02x:%02x:%02x:%02x:%02x:%02x", macAddr[0], macAddr[1], macAddr[2], macAddr[3], macAddr[4], macAddr[5]);
+}
+
+void receiveCallback(const uint8_t *macAddr, const uint8_t *data, int dataLen)
+{
+  char buffer[ESP_NOW_MAX_DATA_LEN + 1];
+  int msgLen = min(ESP_NOW_MAX_DATA_LEN, dataLen);
+  strncpy(buffer, (const char *)data, msgLen);
+  buffer[msgLen] = 0;
+
+  char macStr[18];
+  formatMacAddress(macAddr, macStr, 18);
+
+  Serial.print("Received message from: ");
+  Serial.print(macStr);
+  Serial.print(" - ");
+  Serial.println(buffer);
+
+  if (strcmp("pir1_on", buffer) == 0)
+  {
+    ledOn1 = true;
+    Serial.println("Led1 On");
+    digitalWrite(STATUS_LED1, HIGH); // Turn on LED immediately
+    vTaskResume(task1_handle);       // Resume the corresponding task
+  }
+  else
+  {
+    ledOn1 = false;
+    digitalWrite(STATUS_LED1, LOW); // Turn off LED immediately for other cases
+  }
+}
+
+void task1(void *Parameters)
+{
+  int ledPin = *((int *)Parameters);
+  while (1)
+  {
+    if (ledOn1)
+    {
+      digitalWrite(ledPin, HIGH);
+      vTaskDelay(10000 / portTICK_PERIOD_MS); // Keep LED on for 10 seconds
+      digitalWrite(ledPin, LOW);
+      ledOn1 = false; // Turn off LED after the delay
+    }
+    vTaskSuspend(task1_handle);
+  }
+}
+
+void task2(void *Parameters)
+{
+  int ledPin = *((int *)Parameters);
+  while (1)
+  {
+    digitalWrite(ledPin, HIGH);
+    Serial.println("Led2---  on");
+    vTaskDelay(10000 / portTICK_PERIOD_MS);
+    digitalWrite(ledPin, LOW);
+    vTaskSuspend(task2_handle);
+  }
+}
+
+void task3(void *Parameters)
+{
+  int ledPin = *((int *)Parameters);
+  while (1)
+  {
+    digitalWrite(ledPin, HIGH);
+    vTaskDelay(10000 / portTICK_PERIOD_MS);
+    digitalWrite(ledPin, LOW);
+    vTaskSuspend(task3_handle);
+  }
+}
+
+void task4(void *Parameters)
+{
+  int ledPin = *((int *)Parameters);
+  while (1)
+  {
+    digitalWrite(ledPin, HIGH);
+    Serial.println("Led4---  on");
+    vTaskDelay(10000 / portTICK_PERIOD_MS);
+    digitalWrite(ledPin, LOW);
+    vTaskSuspend(task4_handle);
+  }
+}
+
+void Sensor_Task(void *Parameters)
+{
+  SensorTaskParams *params = (SensorTaskParams *)Parameters;
+  TaskHandle_t task_handle = params->task_handle;
+  bool *ledOn = params->ledOn;
+
+  while (1)
+  {
+    if (*ledOn)
+    {
+      vTaskResume(task_handle);
+    }
+    vTaskDelay(1);
+  }
+}
+
+void setup()
+{
+  Serial.begin(115200);
+  xTaskCreate(task1, "Task1", 10000, (void *)&STATUS_LED1, 0, &task1_handle);
+  xTaskCreate(task2, "Task2", 10000, (void *)&STATUS_LED2, 0, &task2_handle);
+  xTaskCreate(task3, "Task3", 10000, (void *)&STATUS_LED3, 0, &task3_handle);
+  xTaskCreate(task4, "Task4", 10000, (void *)&STATUS_LED4, 0, &task4_handle);
+
+  SensorTaskParams task1_params = {task1_handle, &ledOn1};
+  SensorTaskParams task2_params = {task2_handle, &ledOn2};
+  SensorTaskParams task3_params = {task3_handle, &ledOn3};
+  SensorTaskParams task4_params = {task4_handle, &ledOn4};
+
+  xTaskCreate(Sensor_Task, "Sensor_Task_1", 10000, &task1_params, 1, NULL);
+  xTaskCreate(Sensor_Task, "Sensor_Task_2", 10000, &task2_params, 1, NULL);
+  xTaskCreate(Sensor_Task, "Sensor_Task_3", 10000, &task3_params, 1, NULL);
+  xTaskCreate(Sensor_Task, "Sensor_Task_4", 10000, &task4_params, 1, NULL);
+
+  delay(1000);
+
+  WiFi.mode(WIFI_STA);
+  Serial.println("ESP-NOW Broadcast Demo");
+  Serial.print("MAC Address: ");
+  Serial.println(WiFi.macAddress());
+
+  WiFi.disconnect();
+
+  if (esp_now_init() == ESP_OK)
+  {
+    Serial.println("ESP-NOW Init Success");
+    esp_now_register_recv_cb(receiveCallback);
+  }
+  else
+  {
+    Serial.println("ESP-NOW Init Failed");
+    delay(3000);
+    ESP.restart();
+  }
+
+  pinMode(STATUS_LED1, OUTPUT);
+  pinMode(STATUS_LED2, OUTPUT);
+  pinMode(STATUS_LED3, OUTPUT);
+  pinMode(STATUS_LED4, OUTPUT);
+}
+
+void loop()
+{
+}

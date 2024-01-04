@@ -10,6 +10,13 @@ b = int(input("enter the number end of even number:- "))
     
 print("printing natural numbers")
 
-# for i in range (a,b+1):
+
+
+
+
+
+
+
+
     
     
